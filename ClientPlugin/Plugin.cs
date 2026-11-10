@@ -64,79 +64,39 @@ public class Plugin : IPlugin
         MyGuiSandbox.AddScreen(Instance.settingsGenerator.Dialog);
     }
 
-    private static IReadOnlyDictionary<string, string> assets;
+    /// <summary>
+    /// The folder holding the plugin's files: the manifest's single "Assets" folder asset (ClientPlugin/Assets).
+    /// Pulsar copies a folder asset with its file names kept, both for hub installs and for development folders.
+    /// </summary>
+    private static string assetFolder;
 
-    /// <summary>Called by Pulsar with the image files named in the plugin manifest.</summary>
+    /// <summary>Called by Pulsar with the assets named in the plugin manifest.</summary>
     public void LoadAssets(IReadOnlyDictionary<string, string> files)
     {
-        assets = files;
+        assetFolder = files != null && files.TryGetValue("Assets", out var folder) && System.IO.Directory.Exists(folder)
+            ? folder
+            : null;
+
+        if (assetFolder == null)
+            MyLog.Default.WriteLine("DoomForSe: the Assets folder asset was not found; the screen has no artwork, music or bundled Freedoom");
     }
 
-    /// <summary>
-    /// The Freedoom IWAD that comes with the plugin (the "Freedoom" asset in the manifest), or null.
-    /// DOOMFORSE_FREEDOOM can point at a file or folder for local test runs.
-    /// </summary>
-    public static string FindBundledWad()
+    /// <summary>The path of a file inside the asset folder, or null if it is missing.</summary>
+    private static string AssetFile(params string[] parts)
     {
-        var roots = new List<string>();
-        if (assets != null && assets.TryGetValue("Freedoom", out var asset))
-            roots.Add(asset);
-        var env = System.Environment.GetEnvironmentVariable("DOOMFORSE_FREEDOOM");
-        if (!string.IsNullOrEmpty(env))
-            roots.Add(env);
+        if (assetFolder == null)
+            return null;
 
-        foreach (var root in roots)
-        {
-            if (System.IO.File.Exists(root) && root.EndsWith(".wad", System.StringComparison.OrdinalIgnoreCase))
-                return root;
-            if (!System.IO.Directory.Exists(root))
-                continue;
-
-            foreach (var name in new[] { "freedoom1.wad", "freedoom2.wad" })
-            {
-                foreach (var file in System.IO.Directory.EnumerateFiles(root, name, System.IO.SearchOption.AllDirectories))
-                    return file;
-            }
-        }
-
-        return null;
+        var path = System.IO.Path.Combine(assetFolder, System.IO.Path.Combine(parts));
+        return System.IO.File.Exists(path) ? path : null;
     }
 
-    /// <summary>
-    /// The General MIDI sound font used for music (the "SoundFont" asset), or null.
-    /// DOOMFORSE_ASSETS can point at the repository's asset folder for local test runs.
-    /// </summary>
-    public static string FindSoundFont()
-    {
-        if (assets != null && assets.TryGetValue("SoundFont", out var path) && System.IO.File.Exists(path))
-            return path;
+    /// <summary>The Freedoom IWAD that comes with the plugin, or null.</summary>
+    public static string FindBundledWad() => AssetFile("Freedoom", "freedoom1.wad");
 
-        var folder = System.Environment.GetEnvironmentVariable("DOOMFORSE_ASSETS");
-        if (!string.IsNullOrEmpty(folder))
-        {
-            var file = System.IO.Path.Combine(folder, "Audio", "TimGM6mb.sf2");
-            if (System.IO.File.Exists(file))
-                return file;
-        }
+    /// <summary>The General MIDI sound font used for music, or null.</summary>
+    public static string FindSoundFont() => AssetFile("Audio", "TimGM6mb.sf2");
 
-        return null;
-    }
-
-    /// <summary>The path of an image asset from the manifest, or null if it is missing.</summary>
-    public static string Texture(string name)
-    {
-        if (assets != null && assets.TryGetValue(name, out var path))
-            return path;
-
-        // Local test runs (test.ps1) deploy only the DLL, so they point at the repository's images instead.
-        var folder = System.Environment.GetEnvironmentVariable("DOOMFORSE_ASSETS");
-        if (!string.IsNullOrEmpty(folder))
-        {
-            var file = System.IO.Path.Combine(folder, name + ".png");
-            if (System.IO.File.Exists(file))
-                return file;
-        }
-
-        return null;
-    }
+    /// <summary>The path of an image (name without ".png"), or null if it is missing.</summary>
+    public static string Texture(string name) => AssetFile(name + ".png");
 }

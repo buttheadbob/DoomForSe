@@ -17,5 +17,17 @@ A client-side Pulsar plugin that runs Doom in an in-game GUI screen.
 
 Doom runs only while its screen has focus; the game world keeps running behind it.
 
-Licences: see `LICENSE` and the files in `Docs/`: Managed Doom (GPL-2.0-or-later), MeltySynth (MIT),
-Freedoom (BSD-3-Clause) and TimGM6mb (GPL-2.0).
+## Licence
+
+GPL-2.0-or-later, see [LICENSE](LICENSE). Code from before 2026-11-10 was MIT, see [LICENSE-MIT](LICENSE-MIT).
+
+Parts of the repository come from other projects and keep their own notices:
+
+| Path | Origin | Licence |
+|---|---|---|
+| `ClientPlugin/Doom` | [Managed Doom](https://github.com/sinshu/managed-doom), adapted | GPL-2.0-or-later, see `Docs/LICENSE_ManagedDoom.txt` |
+| `ClientPlugin/MeltySynth` | [MeltySynth](https://github.com/sinshu/meltysynth), adapted | MIT, see `Docs/LICENSE_MeltySynth.txt` |
+| `ClientPlugin/Assets/Freedoom/freedoom1.wad` | [Freedoom](https://freedoom.github.io/) 0.13.0 | BSD-3-Clause, see `Docs/LICENSE_Freedoom.txt` |
+| `ClientPlugin/Assets/Audio/TimGM6mb.sf2` | TimGM6mb sound font, from the Managed Doom v2.1a release | GPL-2.0, see `Docs/LICENSE_TimGM6mb.txt` |
+
+The plugin as a whole is distributed under GPL-2.0-or-later.

@@ -106,8 +106,8 @@ public sealed class DoomScreen : MyGuiScreenBase
             try
             {
                 var args = new CommandLineArgs(resume
-                    ? new[] { "-loadgame", AutosaveSlot.ToString() }
-                    : new string[0]);
+                    ? ["-loadgame", AutosaveSlot.ToString()]
+                    : []);
                 content = new GameContent(args);
                 createdVideo = new DoomVideo(config, content);
                 createdInput = new DoomInput(config);
@@ -176,8 +176,7 @@ public sealed class DoomScreen : MyGuiScreenBase
     public override void LoadContent()
     {
         base.LoadContent();
-        MyRenderProxy.CreateGeneratedTexture(FrameTexture, video.Width, video.Height, MyGeneratedTextureType.RGBA,
-            1, new byte[4 * video.Width * video.Height], generateMipmaps: false, immediatelyReady: true);
+        MyRenderProxy.CreateGeneratedTexture(FrameTexture, video.Width, video.Height, MyGeneratedTextureType.RGBA, 1, new byte[4 * video.Width * video.Height], generateMipmaps: false, immediatelyReady: true);
         textureCreated = true;
         runner.Start();
     }
@@ -346,8 +345,7 @@ public sealed class DoomScreen : MyGuiScreenBase
 
         if (l.HasPanels)
         {
-            ControlsPanel(l, l.Left, new[]
-            {
+            ControlsPanel(l, l.Left, [
                 ("W A S D", "Move"),
                 ("Arrows", "Move / turn"),
                 ("Mouse", "Look"),
@@ -359,8 +357,8 @@ public sealed class DoomScreen : MyGuiScreenBase
                 ("Tab", "Automap"),
                 ("Esc", "Doom menu"),
                 (KeyName(Config.Current.ZoomKey) + " / M3", "Zoom (hold)"),
-                (KeyName(Config.Current.VolumeDownKey) + " / " + KeyName(Config.Current.VolumeUpKey), "Volume"),
-            });
+                (KeyName(Config.Current.VolumeDownKey) + " / " + KeyName(Config.Current.VolumeUpKey), "Volume")
+            ]);
             SidePanel(l, l.Right, "STATUS", new[]
             {
                 "Game data",
