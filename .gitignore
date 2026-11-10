@@ -361,11 +361,27 @@ MigrationBackup/
 # JetBrains Rider project files
 /.idea/
 
-# Claude Code
-.claude
+# Local tool settings
+.claude/
+.venv/
+venv/
+
+# Operating system files
+Thumbs.db
+desktop.ini
+.DS_Store
 
 # Plugin specific
 *.il
+
+# Doom game data: never commit WAD files (DOOM.WAD and DOOM2.WAD are commercial).
+# The only one in the repository is the bundled Freedoom WAD.
+*.[Ww][Aa][Dd]
+!ClientPlugin/Assets/Freedoom/freedoom1.wad
+
+# Doom save games and engine settings
+*.dsg
+managed-doom.cfg
 
 # Local test files
 .test/
