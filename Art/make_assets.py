@@ -1,6 +1,6 @@
 """Draws the images of the Doom screen: the backdrops, the frame corners and the buttons. Needs pillow and numpy.
 
-    python make_assets.py
+    python Art/make_assets.py
 
 The backdrops are drawn once per aspect ratio and per screen height (1080, 1440 and 2160), so the game never has to
 scale them far. They carry no element the code has to line up with: the frame lines, panels and text are drawn by
@@ -12,7 +12,8 @@ import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# The images are written into the plugin's asset folder.
+HERE = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "ClientPlugin", "Assets")
 
 RATIOS = {"4x3": 4 / 3, "16x10": 16 / 10, "16x9": 16 / 9, "21x9": 64 / 27}
 HEIGHTS = (1080, 1440, 2160)

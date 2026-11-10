@@ -1,3 +1,4 @@
+// Part of Doom for Space Engineers. Licensed under GPL-2.0-or-later, see LICENSE in the repository root.
 // Compatibility helpers so the Managed Doom sources also build for .NET Framework 4.8.
 
 using System;

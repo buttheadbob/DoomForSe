@@ -1,3 +1,4 @@
+// Part of Doom for Space Engineers. Licensed under GPL-2.0-or-later, see LICENSE in the repository root.
 using System;
 using System.Collections.Generic;
 

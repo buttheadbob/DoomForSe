@@ -1,3 +1,4 @@
+// Part of Doom for Space Engineers. Licensed under GPL-2.0-or-later, see LICENSE in the repository root.
 // Added for Doom for Space Engineers: optional, purely cosmetic gameplay touches, each switched on by the plugin.
 // Nothing here changes how the game plays: no damage, movement or AI changes, and the extra effects never use
 // Doom's own random numbers, so demos and the game's randomness stay exactly as in vanilla.

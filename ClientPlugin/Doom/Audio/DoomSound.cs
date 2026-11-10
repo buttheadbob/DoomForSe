@@ -1,3 +1,18 @@
+//
+// Copyright (C) 1993-1996 Id Software, Inc.
+// Copyright (C) 2019-2020 Nobuaki Tanaka
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+
 // Adapted from Managed Doom's SilkSound.cs (GPL-2.0-or-later) for Doom for Space Engineers.
 // The channel allocation, priorities, distance falloff and pitch variation are Managed Doom's. Instead of OpenAL
 // channels, the sounds are mixed in software into a mono buffer that the plugin sends to the game's audio engine.
