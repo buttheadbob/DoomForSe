@@ -127,6 +127,27 @@ namespace ManagedDoom.Audio
 
 
 
+        // The parsed sound font (6 MB) is kept between opens; a Synthesizer only reads from it.
+        private static SoundFont cachedFont;
+        private static string cachedFontPath;
+
+        private static SoundFont LoadSoundFont(string path)
+        {
+            if (cachedFont == null || cachedFontPath != path)
+            {
+                cachedFont = new SoundFont(path);
+                cachedFontPath = path;
+            }
+            return cachedFont;
+        }
+
+        /// <summary>Forgets the kept sound font (the plugin is unloading).</summary>
+        public static void ReleaseSoundFont()
+        {
+            cachedFont = null;
+            cachedFontPath = null;
+        }
+
         private class MusStream
         {
             private readonly DoomMusic parent;
@@ -149,7 +170,7 @@ namespace ManagedDoom.Audio
                 var settings = new SynthesizerSettings(MusDecoder.SampleRate);
                 settings.BlockSize = MusDecoder.BlockLength;
                 settings.EnableReverbAndChorus = config.audio_musiceffect;
-                synthesizer = new Synthesizer(sfPath, settings);
+                synthesizer = new Synthesizer(LoadSoundFont(sfPath), settings);
             }
 
             public void SetDecoder(IDecoder decoder)

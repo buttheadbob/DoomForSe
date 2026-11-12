@@ -14,7 +14,7 @@ namespace ClientPlugin.DoomHost;
 /// does (Windows and Linux). The game's streaming voice (the one voice chat uses) takes 16-bit mono PCM at 24 kHz;
 /// effects and music are mixed in software and submitted in short chunks, a little ahead of time.
 /// </summary>
-public sealed class DoomAudio : IDisposable
+public sealed partial class DoomAudio : IDisposable
 {
     public const int SampleRate = 24000;
     private const int ChunkSamples = SampleRate / 50;   // 20 ms per submitted buffer
@@ -60,12 +60,18 @@ public sealed class DoomAudio : IDisposable
             if (due - submitted > SampleRate / 2)
                 submitted = due - LeadSamples;
 
+            // The game's own sound volume and mute apply on top of the plugin's volume.
+            var audio = MyAudio.Static;
+            var gameGain = audio.Mute ? 0f : audio.VolumeGame;
+            var gain = Config.Current.VolumeGain;
+            SelfTestGain(gameGain);
+
             while (submitted < due)
             {
                 Array.Clear(mix, 0, mix.Length);
                 sound?.MixInto(mix, ChunkSamples);
                 music?.MixInto(mix, ChunkSamples);
-                voice.SubmitBuffer(ToPcm16(mix, Config.Current.VolumeGain));
+                voice.SubmitBuffer(ToPcm16(mix, gain, gameGain));
                 submitted += ChunkSamples;
             }
 
@@ -93,11 +99,14 @@ public sealed class DoomAudio : IDisposable
 
     public void Dispose() => Pause();
 
-    private static byte[] ToPcm16(float[] samples, float gain)
+    /// <summary>Hook for the development self-test (debug builds only): sees the game volume factor in use.</summary>
+    partial void SelfTestGain(float gameGain);
+
+    private static byte[] ToPcm16(float[] samples, float gain, float gameGain)
     {
-        // The plugin's own volume, applied last so it is independent of the game's volume and Doom's menu sliders.
+        // The plugin's volume times the game's sound volume, applied last so Doom's menu sliders stay independent.
         // Squared, so the slider feels even to the ear.
-        var scale = 32767f * gain * gain;
+        var scale = 32767f * gain * gain * gameGain; // the game's volume is linear, like its own sounds
         var bytes = new byte[samples.Length * 2];
         for (var i = 0; i < samples.Length; i++)
         {

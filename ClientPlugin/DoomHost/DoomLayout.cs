@@ -4,7 +4,7 @@ namespace ClientPlugin.DoomHost;
 
 /// <summary>
 /// Where everything sits on the Doom screen. All sizes are shares of the screen height, so the screen looks the
-/// same at 1080p, 1440p and 4K and on any shape. Only the backdrop art depends on the shape and the height.
+/// same at 1080p, 1440p and 4K and on any shape. Only the backdrop art depends on the shape.
 /// </summary>
 public readonly struct DoomLayout
 {
@@ -71,13 +71,12 @@ public readonly struct DoomLayout
             VolumeDown = VolumeUp = VolumeBar = new Rectangle(0, 0, 0, 0);
         }
 
-        BackdropName = "DoomBg" + AspectName(screen.Width / h) + "_" + HeightTier(screen.Height);
+        // One 1440p backdrop per shape serves every screen height: the game scales it up for 4K and down for 1080p.
+        BackdropName = "DoomBg" + AspectName(screen.Width / h) + "_1440";
     }
 
     /// <summary>The names match make_assets.py.</summary>
     public static string AspectName(float aspect) => aspect < 1.45f ? "4x3" : aspect < 1.68f ? "16x10" : aspect < 2f ? "16x9" : "21x9";
-
-    public static int HeightTier(int height) => height < 1260 ? 1080 : height < 1800 ? 1440 : 2160;
 
     private static Rectangle Inflate(Rectangle r, float by)
     {

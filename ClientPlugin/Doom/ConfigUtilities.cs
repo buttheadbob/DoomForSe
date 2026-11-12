@@ -49,13 +49,10 @@ namespace ManagedDoom
         public static string GetDefaultIwadPath()
         {
             var directory = GetExeDirectory();
-            foreach (var name in iwadNames)
+            var own = FindIwad(directory);
+            if (own != null)
             {
-                var path = Path.Combine(directory, name);
-                if (File.Exists(path))
-                {
-                    return path;
-                }
+                return own;
             }
 
             // No WAD of the player's own: use the Freedoom WAD that comes with the plugin.
@@ -70,9 +67,33 @@ namespace ManagedDoom
                 + "Copy DOOM1.WAD, DOOM.WAD or DOOM2.WAD into: " + directory);
         }
 
+        /// <summary>
+        /// The player's own IWAD in the folder, in the order of <see cref="iwadNames"/>, or null. Names are matched
+        /// ignoring case, so doom2.wad, DOOM2.WAD and Doom2.Wad are all found on case-sensitive file systems too.
+        /// </summary>
+        public static string FindIwad(string directory)
+        {
+            if (!Directory.Exists(directory))
+            {
+                return null;
+            }
+
+            var files = Directory.GetFiles(directory);
+            foreach (var name in iwadNames)
+            {
+                var match = files.FirstOrDefault(f => string.Equals(Path.GetFileName(f), name, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                {
+                    return match;
+                }
+            }
+
+            return null;
+        }
+
         public static bool IsIwad(string path)
         {
-            var name = Path.GetFileName(path).ToUpper();
+            var name = Path.GetFileName(path).ToUpperInvariant();
             return iwadNames.Contains(name);
         }
 

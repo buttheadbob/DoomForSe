@@ -1,3 +1,5 @@
+TimGM6mb sound font by Tim Brechbill, distributed with Managed Doom v2.1a under the licence below.
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 2, June 1991
 

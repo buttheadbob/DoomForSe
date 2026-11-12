@@ -34,6 +34,20 @@ public struct Binding
     public bool HasPressed(IMyInput input) =>
         Key != MyKeys.None && AreModifiersMatch(input) && input.IsNewKeyPressed(Key);
 
+    /// <summary>Like <see cref="IsPressed"/>, but extra Ctrl, Alt or Shift held at the same time do not matter.</summary>
+    public bool IsPressedAnyModifiers(IMyInput input) =>
+        Key != MyKeys.None && AreRequiredModifiersDown(input) && input.IsKeyPress(Key);
+
+    public bool HasPressedAnyModifiers(IMyInput input) =>
+        Key != MyKeys.None && AreRequiredModifiersDown(input) && input.IsNewKeyPressed(Key);
+
+    private bool AreRequiredModifiersDown(IMyInput input)
+    {
+        return (!Ctrl || input.IsAnyCtrlKeyPressed())
+            && (!Alt || input.IsAnyAltKeyPressed())
+            && (!Shift || input.IsAnyShiftKeyPressed());
+    }
+
     private bool AreModifiersMatch(IMyInput input)
     {
         return input.IsAnyCtrlKeyPressed() == Ctrl

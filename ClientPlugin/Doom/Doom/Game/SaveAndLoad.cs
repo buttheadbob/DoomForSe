@@ -124,9 +124,19 @@ namespace ManagedDoom
 
                 data[ptr++] = 0x1d;
 
-                using (var writer = new FileStream(path, FileMode.Create, FileAccess.Write))
+                // Write beside the save and then swap it in, so a failed write never destroys the previous save.
+                var temp = path + ".tmp";
+                using (var writer = new FileStream(temp, FileMode.Create, FileAccess.Write))
                 {
                     writer.Write(data, 0, ptr);
+                }
+                if (File.Exists(path))
+                {
+                    File.Replace(temp, path, null);
+                }
+                else
+                {
+                    File.Move(temp, path);
                 }
             }
 
