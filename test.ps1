@@ -43,20 +43,17 @@ Write-Host "Building net48 ($Configuration)..."
 & dotnet build $project -c $Configuration -f net48 --nologo -v quiet
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 
-# 2. A private copy of Pulsar. Claude runs as a packaged app, so its Roaming folder is redirected.
+# 2. A private copy of Pulsar.
 if (-not $PulsarSource) {
-    $packaged = Join-Path $env:LOCALAPPDATA 'Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Pulsar'
-    $plain = Join-Path $env:APPDATA 'Pulsar'
-    $PulsarSource = if (Test-Path (Join-Path $plain 'Legacy.exe')) { $plain } else { $packaged }
+    $PulsarSource = Join-Path $env:APPDATA 'Pulsar'
 }
-if (-not (Test-Path (Join-Path $PulsarSource 'Legacy.exe'))) {
-    throw "Legacy.exe not found in $PulsarSource. Pass -PulsarSource <Pulsar folder>."
-}
-
 $pulsar = Join-Path $root '.test\Pulsar'
 $data = Join-Path $pulsar 'Legacy'
 if ($Refresh -and (Test-Path $pulsar)) { Remove-Item $pulsar -Recurse -Force }
 if (-not (Test-Path (Join-Path $pulsar 'Legacy.exe'))) {
+    if (-not (Test-Path (Join-Path $PulsarSource 'Legacy.exe'))) {
+        throw "Legacy.exe not found in $PulsarSource. Pass -PulsarSource <Pulsar folder>."
+    }
     Write-Host "Copying Pulsar to $pulsar"
     New-Item -ItemType Directory -Force -Path $data | Out-Null
     Get-ChildItem $PulsarSource -File | Copy-Item -Destination $pulsar -Force
