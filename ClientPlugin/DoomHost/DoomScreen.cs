@@ -23,7 +23,7 @@ namespace ClientPlugin.DoomHost;
 public sealed partial class DoomScreen : MyGuiScreenBase
 {
     private const string FrameTexture = "DoomForSeFrame";
-    private const string Blank = "Textures\\GUI\\Blank.dds";
+    private const string Blank = MyGuiConstants.BLANK_TEXTURE;
     private const string Font = "White";
     private const int AutosaveSlot = DoomRunner.AutosaveSlot;
 
@@ -256,7 +256,7 @@ public sealed partial class DoomScreen : MyGuiScreenBase
         ApplyExtras();
         seenHits = GameplayExtras.HitCount;
         seenKills = GameplayExtras.KillCount;
-        runner = new DoomRunner(created, video, audio, savePath, resume, resume ? "Resumed your last game" : "Saved on close");
+        runner = new DoomRunner(created, video, audio, savePath, resume, resume ? "Resumed your last game" : "Not saved yet");
         Current = this;
     }
 

@@ -88,7 +88,7 @@ namespace ClientPlugin.DoomHost
                 if (!enabled)
                     return;
 
-                if (MyFileSystem.UserDataPath.IndexOf("\\.test\\", StringComparison.OrdinalIgnoreCase) < 0)
+                if (MyFileSystem.UserDataPath.Replace('\\', '/').IndexOf("/.test/", StringComparison.OrdinalIgnoreCase) < 0)
                 {
                     Log("start", false, "user data path is not a .test folder: " + MyFileSystem.UserDataPath + "; not running");
                     finished = true;
@@ -377,7 +377,7 @@ namespace ClientPlugin.DoomHost
             var boxShown = waitOk;
             yield return 2f;
             Shot("C1-message");
-            Log("C1 damaged save", boxShown && Screen != null && File.Exists(badB) && Screen.SelfTestRunner.AutosaveNote == "Saved on close",
+            Log("C1 damaged save", boxShown && Screen != null && File.Exists(badB) && Screen.SelfTestRunner.AutosaveNote == "Not saved yet",
                 $"message box {boxShown}, reopened {Screen != null}, .bad {File.Exists(badB)}, note '{Screen?.SelfTestRunner.AutosaveNote}'");
             foreach (var box in MyScreenManager.Screens.OfType<MyGuiScreenMessageBox>().ToList())
                 box.CloseScreen();
