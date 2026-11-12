@@ -11,7 +11,8 @@
      With -HubCommit, it installs the plugin the way the hub does instead: Pulsar downloads that commit from GitHub
      (it must be pushed) through a local hub holding a copy of the manifest, so assets arrive as on a player's PC.
   4. Optionally copies a Doom WAD into the plugin's storage folder (-Wad); without one the bundled Freedoom is used.
-  5. Starts the private Pulsar, waits for it to exit, and stops anything it left running.
+  5. Starts the private Pulsar, waits for it to exit, and stops what it started (by process id; a game you run
+     yourself is never touched).
 
   Starting Pulsar opens the game window. Run this only when you are ready for that.
 
@@ -155,12 +156,30 @@ if ($NoLaunch) { Write-Host 'Done (-NoLaunch).'; return }
 # 5. Launch, wait, and clean up.
 $exe = Join-Path $pulsar 'Legacy.exe'
 Write-Host "Starting $exe $($PulsarArgs -join ' ')"
+# Pulsar quits at once while another Space Engineers runs, so say so instead of starting it.
+if (Get-Process -Name 'SpaceEngineers', 'Legacy', 'Interim' -ErrorAction SilentlyContinue) {
+    throw 'Space Engineers or Pulsar is already running. Close it first; this script never stops it for you.'
+}
+
+$started = Get-Date
 $proc = Start-Process -FilePath $exe -ArgumentList $PulsarArgs -WorkingDirectory $pulsar -PassThru
+
+# Stops the process this script started and the processes it started in turn, by process id, and nothing else:
+# a game or Pulsar the player (or anything else) runs at the same time is left alone.
+function Stop-StartedTree([int]$id) {
+    if ($IsWindows -or $env:OS -eq 'Windows_NT') {
+        Get-CimInstance Win32_Process -Filter "ParentProcessId=$id" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CreationDate -ge $started } |
+            ForEach-Object { Stop-StartedTree ([int]$_.ProcessId) }
+    }
+    Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+}
+
 try {
     $proc.WaitForExit()
 }
 finally {
-    Get-Process -Name 'SpaceEngineers', 'Legacy' -ErrorAction SilentlyContinue | Stop-Process -Force
-    Write-Host 'Pulsar and the game are closed.'
+    Stop-StartedTree $proc.Id
+    Write-Host 'The Pulsar this script started is closed.'
 }
 
