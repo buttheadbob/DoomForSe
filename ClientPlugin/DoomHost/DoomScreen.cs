@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using ManagedDoom;
 using ManagedDoom.Audio;
 using Sandbox.Graphics;
 using Sandbox.Graphics.GUI;
+using VRage.Audio;
 using VRage.Input;
 using VRage.Utils;
 using VRageMath;
@@ -18,7 +20,7 @@ namespace ClientPlugin.DoomHost;
 /// the keyboard and mouse to it, uploads its newest frame into a generated game texture and draws it inside a styled
 /// frame. The game is saved to a hidden slot every minute and when the screen closes, and is resumed on the next open.
 /// </summary>
-public sealed class DoomScreen : MyGuiScreenBase
+public sealed partial class DoomScreen : MyGuiScreenBase
 {
     private const string FrameTexture = "DoomForSeFrame";
     private const string Blank = "Textures\\GUI\\Blank.dds";
@@ -39,6 +41,12 @@ public sealed class DoomScreen : MyGuiScreenBase
     private readonly DoomAudio audio;
     private readonly DoomRunner runner;
     private readonly string wadName;
+    private GameContent gameContent;
+    private bool shutDown;
+
+    // The game's own music is silenced while Doom is open, and put back when it closes.
+    private bool musicSilenced;
+    private float savedMusicVolume;
     private bool textureCreated;
     private bool closing;
     private int uploadedFrame;
@@ -54,10 +62,95 @@ public sealed class DoomScreen : MyGuiScreenBase
     private int seenHits, seenKills;
     private float lastHitSeconds = -10f;
     private bool lastWasKill;
+    private bool hitMarkers;
     private bool closeHover;
     private bool downHover, upHover;
 
-    private static string AutosavePath => Path.Combine(ConfigUtilities.GetExeDirectory(), "doomsav" + AutosaveSlot + ".dsg");
+    // Strings and measurements that only change now and then are built once and kept until their inputs change.
+    private readonly string wadTitle;
+    private string statusBar;
+    private (bool, int, int, int) statusBarKey;
+    private (int, int, int) controlsKey;
+    private (string Key, string Action)[] controlRows;
+    private (int, int) statusKey;
+    private string statusNote;
+    private string[] statusLinesGrabbed, statusLinesFree;
+    private static readonly Dictionary<(string, float), Vector2> TextSizes = new();
+    private static Rectangle textSizesScreen;
+    private static readonly string[] NoLines = new string[0];
+
+    private static string DoomConfigPath => Path.Combine(ConfigUtilities.GetExeDirectory(), "managed-doom.cfg");
+
+    // The WAD whose DeHackEd lump patched Doom's static tables in this session, if any.
+    private static bool tablesPatched;
+    private static string patchedKey;
+
+    // Things to do once the screen is gone: open Doom again with a new game, and tell the player what happened.
+    private static bool reopenFresh;
+    private static string pendingMessage;
+
+    private static string WadKey(string wadPath) =>
+        Path.GetFileNameWithoutExtension(wadPath).ToLowerInvariant() + "-" + new FileInfo(wadPath).Length.ToString("x");
+
+    private static string AutosavePath(string wadKey) =>
+        Path.Combine(ConfigUtilities.GetExeDirectory(), "doomsav" + AutosaveSlot + "-" + wadKey + ".dsg");
+
+    /// <summary>A finished save ends with Doom's 0x1d marker; a cut-off file does not.</summary>
+    private static bool SaveLooksComplete(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            if (stream.Length < 64)
+                return false;
+            stream.Seek(-1, SeekOrigin.End);
+            return stream.ReadByte() == 0x1d;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Renames a save that cannot be used, so it is not tried again but is not lost either.</summary>
+    private static void SetSaveAside(string path)
+    {
+        try
+        {
+            var bad = Path.ChangeExtension(path, ".bad");
+            File.Delete(bad);
+            File.Move(path, bad);
+        }
+        catch (Exception e)
+        {
+            MyLog.Default.WriteLine("DoomForSe: could not set the bad save aside: " + e.Message);
+            try { File.Delete(path); } catch (Exception) { /* nothing more to do */ }
+        }
+    }
+
+    private void SaveDoomConfig() => config.Save(DoomConfigPath);
+
+    /// <summary>
+    /// Called once per game update by the plugin: does what the last screen left to do (a new game after a bad
+    /// save, or a message about why Doom stopped).
+    /// </summary>
+    public static void RunPending()
+    {
+        if (Current != null || (!reopenFresh && pendingMessage == null))
+            return;
+
+        var open = reopenFresh;
+        var message = pendingMessage;
+        reopenFresh = false;
+        pendingMessage = null;
+
+        if (open)
+            Toggle();
+        if (message != null)
+            MyGuiSandbox.AddScreen(MyGuiSandbox.CreateMessageBox(
+                messageText: new StringBuilder(message),
+                messageCaption: new StringBuilder("Doom")));
+    }
 
     /// <summary>Opens the screen, or closes it if it is already open.</summary>
     public static void Toggle()
@@ -87,50 +180,83 @@ public sealed class DoomScreen : MyGuiScreenBase
         CanBeHidden = false;
         m_drawEvenWithoutFocus = false;
 
-        config = new ManagedDoom.Config();
+        // Doom's own options (volumes, mouse sensitivity, screen size, gamma) come back from the last session.
+        config = File.Exists(DoomConfigPath) ? new ManagedDoom.Config(DoomConfigPath) : new ManagedDoom.Config();
         config.video_highresolution = true;
         config.video_scale = Config.Current.ResolutionScale(MyGuiManager.GetFullscreenRectangle().Height);
         config.video_fpsscale = 1;
         config.game_alwaysrun = true;
         config.mouse_disableyaxis = true;
 
+        // The autosave belongs to the WAD it was made with, so switching WAD never loads the wrong save.
+        var wadPath = ConfigUtilities.GetWadPaths(new CommandLineArgs(new string[0]))[0];
+        var wadKey = WadKey(wadPath);
+        var savePath = AutosavePath(wadKey);
+
+        // Doom's tables are patched by a WAD's DeHackEd lump and cannot be put back, so a different WAD needs a restart.
+        if (tablesPatched && wadKey != patchedKey)
+            throw new InvalidOperationException("Doom's data was changed by the WAD used earlier in this session. Restart Space Engineers to use a different WAD.");
+
         // A missing WAD throws here, and Toggle reports it.
-        var resume = File.Exists(AutosavePath);
+        var resume = File.Exists(savePath) && SaveLooksComplete(savePath);
+        if (File.Exists(savePath) && !resume)
+            SetSaveAside(savePath);
+
         ManagedDoom.Doom created = null;
         DoomVideo createdVideo = null;
         DoomInput createdInput = null;
         DoomAudio createdAudio = null;
         GameContent content = null;
-        for (var attempt = 0; attempt < 2 && created == null; attempt++)
+        try
         {
-            try
+            for (var attempt = 0; attempt < 2 && created == null; attempt++)
             {
-                var args = new CommandLineArgs(resume
-                    ? ["-loadgame", AutosaveSlot.ToString()]
-                    : []);
-                content = new GameContent(args);
-                createdVideo = new DoomVideo(config, content);
-                createdInput = new DoomInput(config);
-                var (sound, music) = CreateAudio(config, content);
-                created = new ManagedDoom.Doom(args, config, content, createdVideo, sound, music, createdInput);
-                createdAudio = new DoomAudio(sound, music);
+                try
+                {
+                    var args = new CommandLineArgs(resume
+                        ? ["-loadgame", AutosaveSlot.ToString()]
+                        : []);
+                    content = new GameContent(args);
+                    createdVideo = new DoomVideo(config, content);
+                    createdInput = new DoomInput(config);
+                    var (sound, music) = CreateAudio(config, content);
+                    created = new ManagedDoom.Doom(args, config, content, createdVideo, sound, music, createdInput);
+                    if (resume)
+                        created.Game.LoadPath = savePath; // the load itself happens on the Doom thread, on its first tic
+                    createdAudio = new DoomAudio(sound, music);
+                }
+                catch (Exception e) when (resume)
+                {
+                    // Doom could not be built with the autosave: start fresh.
+                    MyLog.Default.WriteLine("DoomForSe: autosave not used: " + e.Message);
+                    resume = false;
+                    content?.Dispose();
+                    content = null;
+                }
             }
-            catch (Exception e) when (resume)
-            {
-                // The autosave could not be used (damaged, or from a different WAD): start fresh.
-                MyLog.Default.WriteLine("DoomForSe: autosave not used: " + e.Message);
-                resume = false;
-            }
+        }
+        catch
+        {
+            content?.Dispose();
+            throw;
+        }
+
+        gameContent = content;
+        if (content.Wad.GetLumpNumber("DEHACKED") != -1)
+        {
+            tablesPatched = true;
+            patchedKey = wadKey;
         }
 
         video = createdVideo;
         input = createdInput;
         audio = createdAudio;
-        wadName = Path.GetFileName(ConfigUtilities.GetWadPaths(new CommandLineArgs(new string[0]))[0]);
+        wadName = Path.GetFileName(wadPath);
+        wadTitle = WadTitle(wadName);
         ApplyExtras();
         seenHits = GameplayExtras.HitCount;
         seenKills = GameplayExtras.KillCount;
-        runner = new DoomRunner(created, video, audio, resume ? "Resumed your last game" : "Saved on close");
+        runner = new DoomRunner(created, video, audio, savePath, resume, resume ? "Resumed your last game" : "Saved on close");
         Current = this;
     }
 
@@ -178,7 +304,35 @@ public sealed class DoomScreen : MyGuiScreenBase
         base.LoadContent();
         MyRenderProxy.CreateGeneratedTexture(FrameTexture, video.Width, video.Height, MyGeneratedTextureType.RGBA, 1, new byte[4 * video.Width * video.Height], generateMipmaps: false, immediatelyReady: true);
         textureCreated = true;
+        SilenceGameMusic();
         runner.Start();
+    }
+
+    /// <summary>
+    /// Keeps the game's music at zero while Doom plays. Called every update too, because the game puts the music
+    /// volume back by itself when its window regains focus; the volume it puts back is the one to restore later.
+    /// </summary>
+    private void SilenceGameMusic()
+    {
+        var audio = MyAudio.Static;
+        if (audio == null)
+            return;
+
+        var volume = audio.VolumeMusic;
+        if (!musicSilenced || volume > 0f)
+            savedMusicVolume = volume;
+        musicSilenced = true;
+        if (volume > 0f)
+            audio.VolumeMusic = 0f;
+    }
+
+    private void RestoreGameMusic()
+    {
+        if (!musicSilenced)
+            return;
+        musicSilenced = false;
+        if (MyAudio.Static != null)
+            MyAudio.Static.VolumeMusic = savedMusicVolume;
     }
 
     public override void UnloadContent()
@@ -193,13 +347,34 @@ public sealed class DoomScreen : MyGuiScreenBase
 
     protected override void OnClosed()
     {
+        Shutdown();
+        base.OnClosed();
+    }
+
+    /// <summary>
+    /// Stops Doom: the Doom thread ends, the game is saved, the audio voice and the WAD are released. Safe to call
+    /// more than once; the plugin calls it at game exit, when no more screen updates would run <see cref="OnClosed"/>.
+    /// </summary>
+    public void Shutdown()
+    {
+        if (shutDown)
+            return;
+        shutDown = true;
+
         // Stop the Doom thread first; then the engine belongs to this thread again for the save on close.
-        runner.Stop();
-        runner.FinalSave();
-        audio?.Dispose();
+        // If the thread is still busy after the wait, it ends by itself and the engine is left alone.
+        if (runner.Stop())
+        {
+            runner.FinalSave();
+            audio?.Dispose();
+            gameContent?.Dispose();
+            gameContent = null;
+        }
+
+        RestoreGameMusic();
+        SaveDoomConfig();
         if (ReferenceEquals(Current, this))
             Current = null;
-        base.OnClosed();
     }
 
     public override void HandleInput(bool receivedFocusInThisUpdate)
@@ -220,7 +395,7 @@ public sealed class DoomScreen : MyGuiScreenBase
         // Zoom: held key or middle mouse button, only while the game has the mouse (in a level, no menu).
         var zoomKey = Config.Current.ZoomKey;
         zoomHeld = input.MouseGrabbed && runner.InLevel
-            && ((zoomKey.Key != MyKeys.None && zoomKey.IsPressed(game)) || game.IsMiddleMousePressed());
+            && ((zoomKey.Key != MyKeys.None && zoomKey.IsPressedAnyModifiers(game)) || game.IsMiddleMousePressed());
 
         var mouseScale = 1f - zoom * (1f - 1f / ZoomFactor); // turn slower while zoomed, so aiming feels the same
         input.AddMouse(game.GetMouseXForGamePlayF() * mouseScale, game.GetMouseYForGamePlayF() * mouseScale,
@@ -247,9 +422,9 @@ public sealed class DoomScreen : MyGuiScreenBase
 
         // The volume keys (Page Down / Page Up by default) work at any time.
         var cfg = Config.Current;
-        if (cfg.VolumeDownKey.Key != MyKeys.None && cfg.VolumeDownKey.HasPressed(game))
+        if (cfg.VolumeDownKey.Key != MyKeys.None && cfg.VolumeDownKey.HasPressedAnyModifiers(game))
             cfg.ChangeVolume(-Config.VolumeStep);
-        if (cfg.VolumeUpKey.Key != MyKeys.None && cfg.VolumeUpKey.HasPressed(game))
+        if (cfg.VolumeUpKey.Key != MyKeys.None && cfg.VolumeUpKey.HasPressedAnyModifiers(game))
             cfg.ChangeVolume(Config.VolumeStep);
 
         // The open key also closes the screen; Plugin.Update sees it too, so only one of them acts on it.
@@ -273,12 +448,25 @@ public sealed class DoomScreen : MyGuiScreenBase
         {
             // Doom quit from its own menu, or stopped with an error (already logged).
             closing = true;
+            if (runner.ResumeFailed)
+            {
+                // The saved game could not be loaded: set it aside and open Doom again with a new game.
+                SetSaveAside(AutosavePath(WadKey(ConfigUtilities.GetWadPaths(new CommandLineArgs(new string[0]))[0])));
+                reopenFresh = true;
+                pendingMessage = "The saved game could not be loaded. It was kept as a .bad file in the Doom folder, and a new game starts.";
+            }
+            else if (runner.Error != null)
+            {
+                pendingMessage = "Doom stopped: " + runner.Error.Message;
+            }
             CloseScreen();
             return true;
         }
 
         // Paused while another screen is on top.
         runner.Paused = !hasFocus;
+        if (musicSilenced)
+            SilenceGameMusic();
 
         ApplyExtras();
         var now = (float)extrasClock.Elapsed.TotalSeconds;
@@ -307,12 +495,15 @@ public sealed class DoomScreen : MyGuiScreenBase
         if (!base.Draw())
             return false;
 
+        var cfg = Config.Current;
+        hitMarkers = cfg.HitMarkers;
         var l = new DoomLayout(MyGuiManager.GetFullscreenRectangle());
         var u = l.Unit;
         var line = Math.Max(1, (int)(u * 0.0019f));
 
         // Backdrop, then the frame.
-        Sprite(Plugin.Texture(l.BackdropName) ?? Blank, l.Screen, Plugin.Texture(l.BackdropName) != null ? Color.White : new Color(12, 6, 6));
+        var backdrop = Plugin.Texture(l.BackdropName);
+        Sprite(backdrop ?? Blank, l.Screen, backdrop != null ? Color.White : new Color(12, 6, 6));
 
         // Title bar.
         Fill(l.Title, Panel);
@@ -324,12 +515,12 @@ public sealed class DoomScreen : MyGuiScreenBase
         Sprite(buttonTexture ?? Blank, l.Close, buttonTexture != null ? Color.White : (closeHover ? new Color(120, 30, 20) : new Color(60, 16, 12)));
         Text("CLOSE", l.Close.X + l.Close.Width / 2, l.Close.Y + l.Close.Height / 2, 0.7f, closeHover ? Bright : Color.White, center: true, vcenter: true);
 
-        // Picture frame.
+        // Picture frame: the black backing first, then the border lines over it.
+        Fill(l.Frame, new Color(0, 0, 0, 255));
         Fill(new Rectangle(l.Frame.X, l.Frame.Y, l.Frame.Width, line), Line);
         Fill(new Rectangle(l.Frame.X, l.Frame.Bottom - line, l.Frame.Width, line), Line);
         Fill(new Rectangle(l.Frame.X, l.Frame.Y, line, l.Frame.Height), Line);
         Fill(new Rectangle(l.Frame.Right - line, l.Frame.Y, line, l.Frame.Height), Line);
-        Fill(l.Frame, new Color(0, 0, 0, 255), behind: true);
 
         // Doom's picture.
         if (textureCreated)
@@ -337,15 +528,47 @@ public sealed class DoomScreen : MyGuiScreenBase
 
         Corners(l);
 
-        // Footer: the keys.
+        // Footer: a status bar. The text is rebuilt only when one of its values changes.
         Fill(l.Footer, Panel);
         Fill(new Rectangle(l.Footer.X, l.Footer.Y, l.Footer.Width, line), Line);
-        Text("WASD / arrows move    Mouse look    Click / Ctrl fire    Space use    Shift run    1-7 weapons    " + KeyName(Config.Current.VolumeDownKey) + " / " + KeyName(Config.Current.VolumeUpKey) + " volume    Esc menu",
-            l.Footer.X + l.Footer.Width / 2, l.Footer.Y + l.Footer.Height / 2, 0.62f, Dim, center: true, vcenter: true, maxWidth: l.Footer.Width - (int)(u * 0.02f));
+        Text(StatusBar(cfg.Volume), l.Footer.X + l.Footer.Width / 2, l.Footer.Y + l.Footer.Height / 2, 0.7f, Dim, center: true, vcenter: true, maxWidth: l.Footer.Width - (int)(u * 0.02f));
 
         if (l.HasPanels)
         {
-            ControlsPanel(l, l.Left, [
+            ControlsPanel(l, l.Left, ControlRows(cfg));
+            SidePanel(l, l.Right, "STATUS", StatusLines(cfg));
+            VolumeControl(l, cfg.Volume);
+        }
+
+        return true;
+    }
+
+    /// <summary>The bottom line: game data, current map, volume and picture size.</summary>
+    private string StatusBar(int volume)
+    {
+        var inLevel = runner.InLevel;
+        var key = (inLevel, runner.Episode, runner.Map, volume);
+        if (statusBar == null || !key.Equals(statusBarKey))
+        {
+            statusBarKey = key;
+            var map = !inLevel ? "Menu"
+                : runner.Commercial ? "MAP" + runner.Map.ToString("00")
+                : "E" + runner.Episode + "M" + runner.Map;
+            statusBar = wadTitle + "    |    " + map + "    |    Volume " + volume + "%    |    " + video.Width + " x " + video.Height;
+        }
+
+        return statusBar;
+    }
+
+    /// <summary>The controls list; the key names are rebuilt only when a binding changes.</summary>
+    private (string Key, string Action)[] ControlRows(Config cfg)
+    {
+        var key = (BindingSignature(cfg.ZoomKey), BindingSignature(cfg.VolumeDownKey), BindingSignature(cfg.VolumeUpKey));
+        if (controlRows == null || !key.Equals(controlsKey))
+        {
+            controlsKey = key;
+            controlRows =
+            [
                 ("W A S D", "Move"),
                 ("Arrows", "Move / turn"),
                 ("Mouse", "Look"),
@@ -356,36 +579,70 @@ public sealed class DoomScreen : MyGuiScreenBase
                 ("1 - 7", "Weapons"),
                 ("Tab", "Automap"),
                 ("Esc", "Doom menu"),
-                (KeyName(Config.Current.ZoomKey) + " / M3", "Zoom (hold)"),
-                (KeyName(Config.Current.VolumeDownKey) + " / " + KeyName(Config.Current.VolumeUpKey), "Volume")
-            ]);
-            SidePanel(l, l.Right, "STATUS", new[]
-            {
+                (KeyName(cfg.ZoomKey) + " / M3", "Zoom (hold)"),
+                (KeyName(cfg.VolumeDownKey) + " / " + KeyName(cfg.VolumeUpKey), "Volume")
+            ];
+        }
+
+        return controlRows;
+    }
+
+    /// <summary>The status panel lines; rebuilt only when the open key or the resolution setting changes.</summary>
+    private string[] StatusLines(Config cfg)
+    {
+        var key = (BindingSignature(cfg.OpenKey), (int)cfg.Resolution);
+        if (statusLinesFree == null || !key.Equals(statusKey) || !ReferenceEquals(statusNote, runner.AutosaveNote))
+        {
+            statusKey = key;
+            statusNote = runner.AutosaveNote;
+            string[] Build(string mouse) =>
+            [
                 "Game data",
                 "  " + wadName + (wadName.StartsWith("freedoom", StringComparison.OrdinalIgnoreCase) ? " (bundled)" : ""),
                 "",
                 "Resolution",
-                "  " + video.Width + " x " + video.Height + (Config.Current.Resolution == DoomResolution.Auto_MatchScreen ? " (auto)" : ""),
+                "  " + video.Width + " x " + video.Height + (cfg.Resolution == DoomResolution.Auto_MatchScreen ? " (auto)" : ""),
                 "",
                 "Mouse",
-                input.MouseGrabbed ? "  Captured by Doom" : "  Free (use the menu)",
+                mouse,
                 "",
                 "Save",
                 "  " + runner.AutosaveNote,
                 "  Every minute and on close",
                 "",
-                KeyName(Config.Current.OpenKey) + " closes this",
-            });
-            VolumeControl(l);
+                KeyName(cfg.OpenKey) + " closes this",
+            ];
+            statusLinesGrabbed = Build("  Captured by Doom");
+            statusLinesFree = Build("  Free (use the menu)");
         }
 
-        return true;
+        return input.MouseGrabbed ? statusLinesGrabbed : statusLinesFree;
+    }
+
+    private static int BindingSignature(ClientPlugin.Settings.Tools.Binding b) =>
+        (int)b.Key * 8 + (b.Ctrl ? 1 : 0) + (b.Alt ? 2 : 0) + (b.Shift ? 4 : 0);
+
+    /// <summary>A friendly name for the common IWADs; any other file shows its file name.</summary>
+    private static string WadTitle(string fileName)
+    {
+        switch (Path.GetFileNameWithoutExtension(fileName).ToLowerInvariant())
+        {
+            case "freedoom1": return "Freedoom: Phase 1";
+            case "freedoom2": return "Freedoom: Phase 2";
+            case "freedm": return "FreeDM";
+            case "doom": return "The Ultimate Doom";
+            case "doom1": return "Doom (shareware)";
+            case "doom2": return "Doom II";
+            case "plutonia": return "Final Doom: Plutonia";
+            case "tnt": return "Final Doom: TNT";
+            default: return fileName;
+        }
     }
 
     /// <summary>The controls list, with the keys and the actions in two aligned columns.</summary>
     private void ControlsPanel(DoomLayout l, Rectangle r, (string Key, string Action)[] rows)
     {
-        SidePanel(l, r, "CONTROLS", new string[0]);
+        SidePanel(l, r, "CONTROLS", NoLines);
 
         var u = l.Unit;
         var pad = (int)(u * 0.016f);
@@ -402,15 +659,13 @@ public sealed class DoomScreen : MyGuiScreenBase
     }
 
     /// <summary>The volume row at the bottom of the status panel: [-] level bar [+], with the value above.</summary>
-    private void VolumeControl(DoomLayout l)
+    private void VolumeControl(DoomLayout l, int volume)
     {
         var u = l.Unit;
         var line = Math.Max(1, (int)(u * 0.0019f));
-        var volume = Config.Current.Volume;
 
         var labelY = l.VolumeDown.Y - (int)(u * 0.036f);
         Text("Volume", l.VolumeDown.X, labelY, 0.62f, Dim);
-        Text(volume + "%", l.VolumeUp.Right, labelY, 0.62f, Color.White, right: true);
 
         VolumeButton(l.VolumeDown, "-", downHover, line);
         VolumeButton(l.VolumeUp, "+", upHover, line);
@@ -504,7 +759,7 @@ public sealed class DoomScreen : MyGuiScreenBase
     /// <summary>A small gapped cross on the crosshair after a hit: white, or red on a kill; fades out quickly.</summary>
     private void DrawHitMarker(Vector2 centre, int viewHeight)
     {
-        if (!Config.Current.HitMarkers)
+        if (!hitMarkers)
             return;
 
         var age = (float)extrasClock.Elapsed.TotalSeconds - lastHitSeconds;
@@ -567,10 +822,30 @@ public sealed class DoomScreen : MyGuiScreenBase
             Sprite(path, r, Color.White);
     }
 
+    /// <summary>The size of a text in pixels. Measured once per text and scale; forgotten when the screen size changes.</summary>
+    private static Vector2 TextSize(string text, float scale)
+    {
+        var screen = MyGuiManager.GetFullscreenRectangle();
+        if (screen != textSizesScreen || TextSizes.Count > 512)
+        {
+            TextSizes.Clear();
+            textSizesScreen = screen;
+        }
+
+        var key = (text, scale);
+        if (!TextSizes.TryGetValue(key, out var size))
+        {
+            size = MyGuiManager.GetScreenSizeFromNormalizedSize(MyGuiManager.MeasureString(Font, text, scale));
+            TextSizes[key] = size;
+        }
+
+        return size;
+    }
+
     private static void Sprite(string texture, Rectangle r, Color color) =>
         MyGuiManager.DrawSpriteBatch(texture, r, color, ignoreBounds: true, waitTillLoaded: false);
 
-    private static void Fill(Rectangle r, Color color, bool behind = false) => Sprite(Blank, r, color);
+    private static void Fill(Rectangle r, Color color) => Sprite(Blank, r, color);
 
     /// <summary>
     /// Draws text at a pixel position. The alignment is worked out here in pixels, because the game measures text in
@@ -579,7 +854,7 @@ public sealed class DoomScreen : MyGuiScreenBase
     private static void Text(string text, int x, int y, float scale, Color color, bool center = false, bool vcenter = false, int maxWidth = int.MaxValue, bool right = false)
     {
         // Text size in pixels: MeasureString is in GUI-area units.
-        var size = MyGuiManager.GetScreenSizeFromNormalizedSize(MyGuiManager.MeasureString(Font, text, scale));
+        var size = TextSize(text, scale);
         var width = Math.Min(size.X, maxWidth);
 
         var left = center ? x - width / 2f : right ? x - width : x;

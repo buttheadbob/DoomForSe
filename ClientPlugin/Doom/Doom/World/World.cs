@@ -230,6 +230,9 @@ namespace ManagedDoom
             }
         }
 
+        /// <summary>True from the moment the level exit was used until the level changes.</summary>
+        public bool Completed => completed;
+
         public void ExitLevel()
         {
             secretExit = false;

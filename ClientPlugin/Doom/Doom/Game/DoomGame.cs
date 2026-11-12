@@ -37,6 +37,9 @@ namespace ManagedDoom
 		private bool paused;
 
 		private int loadGameSlotNumber;
+
+		/// <summary>Doom for Space Engineers: when set, a queued load reads this file instead of the slot's file.</summary>
+		public string LoadPath { get; set; }
 		private int saveGameSlotNumber;
 		private string saveGameDescription;
 
@@ -314,7 +317,7 @@ namespace ManagedDoom
 			gameAction = GameAction.Nothing;
 
 			var directory = ConfigUtilities.GetExeDirectory();
-			var path = Path.Combine(directory, "doomsav" + loadGameSlotNumber + ".dsg");
+			var path = LoadPath ?? Path.Combine(directory, "doomsav" + loadGameSlotNumber + ".dsg");
 			SaveAndLoad.Load(this, path);
 		}
 
