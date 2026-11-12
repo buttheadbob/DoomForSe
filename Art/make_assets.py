@@ -1,11 +1,11 @@
-"""Draws the images of the Doom screen: the backdrops, the frame corners and the buttons. Needs pillow and numpy.
+"""Draws the images of the Doom screen: the backdrops, the frame corners and the buttons. Needs pillow and numpy;
+with the imagequant package installed, the backdrops are saved with a 256-colour palette, as committed.
 
     python Art/make_assets.py
 
-The backdrops are drawn once per aspect ratio and per screen height (1080, 1440 and 2160), so the game never has to
-scale them far. They carry no element the code has to line up with: the frame lines, panels and text are drawn by
-DoomScreen from the layout in DoomLayout.cs, so they match any real screen shape. The ratio names match
-DoomLayout.AspectName.
+The backdrops are drawn once per aspect ratio at 1440p; the game scales them up for 4K and down for 1080p. They carry
+no element the code has to line up with: the frame lines, panels and text are drawn by DoomScreen from the layout in
+DoomLayout.cs, so they match any real screen shape. The ratio names match DoomLayout.AspectName.
 """
 import os
 
@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFilter
 HERE = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "ClientPlugin", "Assets")
 
 RATIOS = {"4x3": 4 / 3, "16x10": 16 / 10, "16x9": 16 / 9, "21x9": 64 / 27}
-HEIGHTS = (1080, 1440, 2160)
+HEIGHTS = (1440,)
 
 EMBER = np.array([0.86, 0.16, 0.06])
 DEEP = np.array([0.030, 0.022, 0.026])
@@ -68,7 +68,19 @@ def backdrop(width, height, name):
         d = round(k * 14 * unit)
         draw.line((inset, inset + d + tick, inset + tick, inset + d), fill=line, width=w)
         draw.line((width - 1 - inset, inset + d + tick, width - 1 - inset - tick, inset + d), fill=line, width=w)
-    image.save(os.path.join(HERE, name), optimize=True)
+    save_palette(image, name)
+
+
+def save_palette(image, name):
+    """Saves a backdrop with a dithered 256-colour palette (a third of the size, no visible change), if imagequant
+    is installed; otherwise as a full-colour PNG."""
+    try:
+        import imagequant
+    except ImportError:
+        image.save(os.path.join(HERE, name), optimize=True)
+        return
+    imagequant.quantize_pil_image(image.convert("RGBA"), dithering_level=1.0, max_colors=256).save(
+        os.path.join(HERE, name), optimize=True)
 
 
 def corner(name, flip_x, flip_y):

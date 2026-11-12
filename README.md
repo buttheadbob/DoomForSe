@@ -7,7 +7,8 @@ A client-side Pulsar plugin that runs Doom in an in-game GUI screen.
   GPL-2.0-or-later), vendored in `ClientPlugin/Doom`. Its framebuffer is uploaded each frame into a generated game
   texture and drawn with `MyGuiManager.DrawSpriteBatch`, so no extra window or WinForms is needed.
 - Game data: the free [Freedoom](https://freedoom.github.io/) Phase 1 WAD (BSD-3-Clause, v0.13.0) comes with the
-  plugin in `ClientPlugin/Assets/Freedoom`, so it works straight away. To play the original Doom, copy your own `DOOM.WAD` or `DOOM2.WAD`
+  plugin, so it works straight away. It is stored in the repository as `ClientPlugin/GameData/freedoom1.7z`, which
+  Pulsar unpacks when it installs the plugin; the plugin itself downloads nothing. To play the original Doom, copy your own `DOOM.WAD` or `DOOM2.WAD`
   into `%AppData%\SpaceEngineers\Storage\DoomForSe`; it is used instead of Freedoom. Saves go to the same folder.
 - Sound effects and music play through the game's own audio engine (Windows and Linux). Music uses the TimGM6mb
   General MIDI sound font, which comes with the plugin. The game's streaming voice is mono, so sounds have distance
@@ -20,6 +21,9 @@ A client-side Pulsar plugin that runs Doom in an in-game GUI screen.
 
 Doom runs only while its screen has focus; the game world keeps running behind it.
 
+Linux: Pulsar's .NET 10 build is supported, and WAD names are matched in any case (`doom2.wad` or `DOOM2.WAD`), but we
+have not tested it on Linux ourselves.
+
 ## Licence
 
 GPL-2.0-or-later, see [LICENSE](LICENSE). Code from before 2026-11-10 was MIT, see [LICENSE-MIT](LICENSE-MIT).
@@ -30,7 +34,7 @@ Parts of the repository come from other projects and keep their own notices:
 |---|---|---|
 | `ClientPlugin/Doom` | [Managed Doom](https://github.com/sinshu/managed-doom), adapted | GPL-2.0-or-later, see `Docs/LICENSE_ManagedDoom.txt` |
 | `ClientPlugin/MeltySynth` | [MeltySynth](https://github.com/sinshu/meltysynth), adapted | MIT, see `Docs/LICENSE_MeltySynth.txt` |
-| `ClientPlugin/Assets/Freedoom/freedoom1.wad` | [Freedoom](https://freedoom.github.io/) 0.13.0 | BSD-3-Clause, see `Docs/LICENSE_Freedoom.txt` |
+| `ClientPlugin/GameData/freedoom1.7z` (`freedoom1.wad`) | [Freedoom](https://freedoom.github.io/) 0.13.0 | BSD-3-Clause, see `Docs/LICENSE_Freedoom.txt` |
 | `ClientPlugin/Assets/Audio/TimGM6mb.sf2` | TimGM6mb sound font by Tim Brechbill, from the Managed Doom v2.1a release | GPL-2.0, see `Docs/LICENSE_TimGM6mb.txt` |
 
 The plugin as a whole is distributed under GPL-2.0-or-later.

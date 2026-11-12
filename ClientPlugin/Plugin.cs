@@ -70,12 +70,16 @@ public partial class Plugin : IPlugin
     }
 
     /// <summary>
-    /// The folder holding the plugin's files: the manifest's single "Assets" folder asset (ClientPlugin/Assets).
-    /// Pulsar copies a folder asset with its file names kept, both for hub installs and for development folders.
+    /// The folder holding the plugin's files: the manifest's "Assets" folder asset (ClientPlugin/Assets). Pulsar copies
+    /// a folder asset with its file names kept, both for hub installs and for development folders.
     /// </summary>
     private static string assetFolder;
 
-    /// <summary>Every file in the asset folder, scanned once: path relative to the folder (with '/') to full path.</summary>
+    /// <summary>
+    /// Every file of the plugin's assets, scanned once: relative path (with '/') to full path. Files of the "Assets"
+    /// folder are keyed by their path inside it; the other assets are keyed under their name, so the "Freedoom" asset
+    /// (ClientPlugin/GameData/freedoom1.7z, which Pulsar unpacks at install) gives "Freedoom/freedoom1.wad".
+    /// </summary>
     private static Dictionary<string, string> assetFiles = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The images directly in the asset folder: name without ".png" to full path.</summary>
@@ -84,25 +88,39 @@ public partial class Plugin : IPlugin
     /// <summary>Called by Pulsar with the assets named in the plugin manifest.</summary>
     public void LoadAssets(IReadOnlyDictionary<string, string> files)
     {
-        assetFolder = files != null && files.TryGetValue("Assets", out var folder) && System.IO.Directory.Exists(folder)
-            ? folder
-            : null;
-
         assetFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         textures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        assetFolder = null;
 
-        if (assetFolder == null)
+        foreach (var asset in files ?? new Dictionary<string, string>())
         {
-            MyLog.Default.WriteLine("DoomForSe: the Assets folder asset was not found; the screen has no artwork, music or bundled Freedoom");
-            return;
+            var isAssetsFolder = asset.Key.Equals("Assets", StringComparison.OrdinalIgnoreCase);
+            if (System.IO.Directory.Exists(asset.Value))
+            {
+                if (isAssetsFolder)
+                    assetFolder = asset.Value;
+                AddAssetFolder(asset.Value, isAssetsFolder ? "" : asset.Key + "/");
+            }
+            else if (System.IO.File.Exists(asset.Value))
+            {
+                assetFiles[asset.Key] = asset.Value;
+            }
         }
 
-        foreach (var path in System.IO.Directory.EnumerateFiles(assetFolder, "*", System.IO.SearchOption.AllDirectories))
-        {
-            var relative = path.Substring(assetFolder.Length).TrimStart('\\', '/').Replace('\\', '/');
-            assetFiles[relative] = path;
+        if (assetFolder == null)
+            MyLog.Default.WriteLine("DoomForSe: the Assets folder asset was not found; the screen has no artwork or music");
+        if (FindBundledWad() == null)
+            MyLog.Default.WriteLine("DoomForSe: the bundled Freedoom was not found; a WAD of your own in the Storage/DoomForSe folder is needed");
+    }
 
-            if (relative.EndsWith(".png", StringComparison.OrdinalIgnoreCase) && relative.IndexOf('/') < 0)
+    private static void AddAssetFolder(string folder, string prefix)
+    {
+        foreach (var path in System.IO.Directory.EnumerateFiles(folder, "*", System.IO.SearchOption.AllDirectories))
+        {
+            var relative = path.Substring(folder.Length).TrimStart('\\', '/').Replace('\\', '/');
+            assetFiles[prefix + relative] = path;
+
+            if (prefix.Length == 0 && relative.EndsWith(".png", StringComparison.OrdinalIgnoreCase) && relative.IndexOf('/') < 0)
                 textures[relative.Substring(0, relative.Length - 4)] = path;
         }
     }
